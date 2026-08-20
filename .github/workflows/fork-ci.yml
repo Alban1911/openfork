@@ -3,6 +3,8 @@ name: fork-ci
 on:
   push:
     branches: [feature/google-antigravity-oauth]
+  pull_request:
+    branches: [dev]
   workflow_dispatch:
 
 jobs:
