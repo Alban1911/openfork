@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto"
 
-const CLOUD_CODE_ASSIST_API = "https://cloudcode-pa.googleapis.com"
+const CLOUD_CODE_ASSIST_API =
+  process.env.GOOGLE_ANTIGRAVITY_BASE_URL?.trim().replace(/\/+$/, "") ||
+  "https://daily-cloudcode-pa.googleapis.com"
 export const INTERNAL_SESSION_HEADER = "x-opencode-antigravity-session"
 
 export interface PreparedAntigravityRequest {
