@@ -1,0 +1,22 @@
+name: fork-ci
+
+on:
+  push:
+    branches: [feature/google-antigravity-oauth]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Bun and dependencies
+        uses: ./.github/actions/setup-bun
+
+      - name: Typecheck OpenCode
+        run: bun --cwd packages/opencode typecheck
+
+      - name: Run Google Antigravity tests
+        run: bun --cwd packages/opencode test test/plugin/google-antigravity.test.ts
