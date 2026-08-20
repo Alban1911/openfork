@@ -2,11 +2,14 @@ import { createServer } from "node:http"
 import { randomBytes, createHash } from "node:crypto"
 
 function oauthClient() {
-  const clientId = process.env.GOOGLE_ANTIGRAVITY_CLIENT_ID?.trim()
-  const clientSecret = process.env.GOOGLE_ANTIGRAVITY_CLIENT_SECRET?.trim()
-  if (!clientId) {
-    throw new Error("GOOGLE_ANTIGRAVITY_CLIENT_ID is required for Google Antigravity OAuth")
-  }
+  const clientId =
+    process.env.GOOGLE_ANTIGRAVITY_CLIENT_ID ??
+    "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+
+  const clientSecret =
+    process.env.GOOGLE_ANTIGRAVITY_CLIENT_SECRET ??
+    "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"
+
   return { clientId, clientSecret }
 }
 
