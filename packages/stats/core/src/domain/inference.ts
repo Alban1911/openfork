@@ -6,6 +6,7 @@ import {
   EXCLUDED_MODELS,
   FREE_MODELS,
   MODEL_AUTHOR_RULES,
+  MODEL_NAME_ALIASES,
   RETIRED_STAT_PROVIDERS,
   statModel,
   statProvider,
@@ -301,9 +302,12 @@ function statPeriods(grain: "day" | "week", periodStart: Date, periodEnd: Date) 
 
 function statModelSql(model: string, providerModel: string) {
   return `COALESCE(NULLIF(regexp_replace(CASE
-      WHEN lower(${model}) = 'big-pickle' THEN NULLIF(${providerModel}, '')
+      WHEN lower(${model}) = 'big-pickle' THEN regexp_replace(NULLIF(${providerModel}, ''), '^.*/', '')
+${Object.entries(MODEL_NAME_ALIASES)
+  .map(([from, to]) => `      WHEN lower(${model}) = ${sqlString(from)} THEN ${sqlString(to)}`)
+  .join("\n")}
       ELSE ${model}
-    END, '(-free|:global)+$', ''), ''), 'unknown')`
+    END, '(-free|:free|:global)+$', ''), ''), 'unknown')`
 }
 
 function freeTierSql(tier: string, model: string) {
