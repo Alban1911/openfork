@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  workflows: write
 
 jobs:
   sync:
@@ -16,6 +17,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
+          ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Sync with upstream dev
@@ -26,5 +28,41 @@ jobs:
             git remote add upstream https://github.com/anomalyco/opencode.git
           fi
           git fetch upstream dev
-          git merge upstream/dev -m "chore: sync upstream dev" --no-edit
-          git push origin main
+
+          # Attempt merge without committing so upstream workflows can be pruned
+          if ! git merge upstream/dev --no-commit --no-edit; then
+            echo "Merge encountered conflicts, resolving .github/workflows..."
+          fi
+
+          # Resolve any unmerged files under .github/workflows by removing them
+          git diff --name-only --diff-filter=U | grep '^\.github/workflows/' | while read -r conflict_file; do
+            git rm -f "$conflict_file" 2>/dev/null || rm -f "$conflict_file"
+          done
+
+          # Prune any new or restored upstream workflows, keeping only fork-specific ones
+          for file in .github/workflows/*; do
+            [ -f "$file" ] || continue
+            filename=$(basename "$file")
+            if [ "$filename" != "fork-ci.yml" ] && [ "$filename" != "sync-upstream.yml" ]; then
+              git rm -f "$file" 2>/dev/null || rm -f "$file"
+            fi
+          done
+
+          # Fail if any unresolved merge conflicts exist outside .github/workflows
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "Unresolved merge conflicts exist outside .github/workflows:"
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+
+          # Commit the merge if one is in progress
+          if git rev-parse -q --verify MERGE_HEAD; then
+            git commit -m "chore: sync upstream dev" --no-edit
+            git push origin main
+          elif [ -n "$(git status --porcelain)" ]; then
+            git add -A
+            git commit -m "chore: sync upstream dev"
+            git push origin main
+          else
+            echo "Already up to date."
+          fi
