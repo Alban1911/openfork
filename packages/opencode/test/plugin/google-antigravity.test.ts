@@ -25,6 +25,13 @@ describe("Google Antigravity OAuth", () => {
 
 describe("Google Antigravity transport", () => {
   test("maps picker ids to wire ids", () => {
+    expect(mapAntigravityModel("gemini-3.8-flash")).toBe("gemini-3.8-flash-medium")
+    expect(
+      mapAntigravityModel("gemini-3.8-flash", {
+        generationConfig: { thinkingConfig: { thinkingLevel: "high" } },
+      }),
+    ).toBe("gemini-3.8-flash-high")
+    expect(mapAntigravityModel("gemini-3.8-flash-low")).toBe("gemini-3.8-flash-low")
     expect(mapAntigravityModel("gemini-3.7-flash")).toBe("gemini-3.7-flash-tiered")
     expect(mapAntigravityModel("gemini-3.1-pro")).toBe("gemini-pro-agent")
     expect(mapAntigravityModel("gemini-3.1-pro-low")).toBe("gemini-3.1-pro-low")

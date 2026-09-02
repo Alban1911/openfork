@@ -13,7 +13,9 @@ export interface PreparedAntigravityRequest {
   signal?: AbortSignal | null
 }
 
-export function mapAntigravityModel(model: string): string {
+export function mapAntigravityModel(model: string, body?: Record<string, unknown>): string {
+  if (model === "gemini-3.8-flash") return `${model}-${gemini38ThinkingLevel(body)}`
+  if (/^gemini-3\.8-flash-(?:low|medium|high)$/.test(model)) return model
   if (model === "gemini-3.7-flash") return "gemini-3.7-flash-tiered"
   if (model === "gemini-3.1-pro" || model === "gemini-3.1-pro-high" || model === "gemini-3.1-pro-preview") {
     return "gemini-pro-agent"
@@ -23,6 +25,18 @@ export function mapAntigravityModel(model: string): string {
     return "gemini-3.7-flash-tiered"
   }
   return model
+}
+
+function gemini38ThinkingLevel(body: Record<string, unknown> | undefined) {
+  const generationConfig = body?.generationConfig
+  if (!generationConfig || typeof generationConfig !== "object" || Array.isArray(generationConfig)) return "medium"
+
+  const thinkingConfig = (generationConfig as Record<string, unknown>).thinkingConfig
+  if (!thinkingConfig || typeof thinkingConfig !== "object" || Array.isArray(thinkingConfig)) return "medium"
+
+  const level = (thinkingConfig as Record<string, unknown>).thinkingLevel
+  if (level === "low" || level === "medium" || level === "high") return level
+  return "medium"
 }
 
 export function isAntigravityModel(model: string) {
@@ -81,7 +95,7 @@ export async function prepareAntigravityRequest(
   const anchor = headers.get(INTERNAL_SESSION_HEADER) ?? firstUserText(body) ?? randomUUID()
   return {
     method: match[2] as PreparedAntigravityRequest["method"],
-    model: mapAntigravityModel(decodeURIComponent(match[1])),
+    model: mapAntigravityModel(decodeURIComponent(match[1]), body),
     body,
     sessionId: stableSessionId(anchor),
     signal: init?.signal ?? (input instanceof Request ? input.signal : undefined),
