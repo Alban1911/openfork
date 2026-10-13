@@ -5,7 +5,7 @@ on:
     branches:
       - main
       - dev
-      - gemini-thinking-level
+      - "migration/**"
       - "feature/**"
       - "fix/**"
   pull_request:
@@ -13,16 +13,17 @@ on:
       - main
       - dev
   workflow_dispatch:
-  # Bot pushes made with GITHUB_TOKEN do not trigger push workflows.
-  # Run validation after each scheduled/manual upstream sync instead.
   workflow_run:
     workflows:
       - Sync Upstream
     types:
       - completed
 
+permissions:
+  contents: read
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: fork-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -36,8 +37,15 @@ jobs:
       - name: Setup Bun and dependencies
         uses: ./.github/actions/setup-bun
 
-      - name: Typecheck OpenCode
-        run: bun --cwd packages/opencode typecheck
+      - name: Typecheck V2 core
+        run: bun --cwd packages/core typecheck
 
-      - name: Run Google Antigravity tests
-        run: bun --cwd packages/opencode test test/plugin/google-antigravity.test.ts
+      - name: Typecheck V2 CLI
+        run: bun --cwd packages/cli typecheck
+
+      - name: Run Antigravity tests
+        run: cd packages/core && bun test test/plugin/google-antigravity.test.ts
+
+      - name: Smoke build V2 CLI (migration branch)
+        if: github.ref == 'refs/heads/migration/opencode-v2-antigravity'
+        run: bun --cwd packages/cli build --single --skip-install --skip-web-ui

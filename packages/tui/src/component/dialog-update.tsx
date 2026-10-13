@@ -1,165 +1,138 @@
 import { TextAttributes } from "@opentui/core"
-import { createEffect, createMemo, createResource, createSignal, For, Match, Show, Switch } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, Match, onCleanup, Show, Switch } from "solid-js"
+import { Keymap } from "../context/keymap"
 import { useTheme } from "../context/theme"
-import type { UpdateState, UpdateTarget } from "../context/update-notification"
+import type { UpdateState } from "../context/update-notification"
 import { useDialog } from "../ui/dialog"
-import { useBindings } from "../keymap"
 import { errorMessage } from "../util/error"
 import { Spinner } from "./spinner"
-import { openUrl } from "@opencode-ai/core/open"
-
-export const V2_ANNOUNCEMENT_URL = "https://anoma.ly/notes/opencode-2-0"
-
-type Version = { current: string; latest?: string }
-
-// A newer OpenCode 1 release uses the normal update flow; OpenCode 2.0 is only offered when OpenCode 1 is current.
-export function updateTarget(version: Version): UpdateTarget {
-  if (version.latest && version.latest !== version.current) return { type: "latest", version: version.latest }
-  return { type: "major" }
-}
 
 export function DialogUpdate(props: {
-  check: () => Promise<Version | undefined>
+  check?: (signal: AbortSignal) => Promise<string | undefined>
   state: () => UpdateState | undefined
-  install: (target: UpdateTarget) => Promise<void>
-  skip: (version: string) => void
-  dismiss: () => void
+  skip: () => void
+  install: () => Promise<void>
   restart: () => void
 }) {
   const dialog = useDialog()
-  const { theme } = useTheme()
+  const theme = useTheme().surface("dialog")
   const [error, setError] = createSignal<string>()
   const [active, setActive] = createSignal(0)
-  const [check] = createResource(() =>
-    props.check().catch((error: unknown) => {
-      setError(errorMessage(error))
-      return undefined
-    }),
-  )
+  const controller = new AbortController()
+  onCleanup(() => controller.abort())
 
-  const target = () => {
-    const version = check()
-    if (!version?.latest) return undefined
-    return updateTarget(version)
-  }
+  dialog.setCentered(true)
+
+  const [check] = createResource(
+    () => props.check,
+    (check) =>
+      check(controller.signal).catch((error) => {
+        if (!controller.signal.aborted) setError(errorMessage(error))
+        return undefined
+      }),
+  )
   const state = createMemo(() => {
+    const message = error()
+    if (message) return { type: "check-failed" as const, message }
     const current = props.state()
-    if (current?.type === "installing" || current?.type === "installed") return current
+    if (current?.type === "installing") return current
     if (check.loading) return { type: "checking" as const }
-    if (current?.type === "failed") return current
-    const next = target()
-    if (!next) return { type: "check-failed" as const, message: error() ?? "Couldn't check for updates." }
-    if (next.type === "major") return { type: "major" as const }
-    return { type: "available" as const, version: next.version }
+    const unavailable = check()
+    if (unavailable) return { type: "unavailable" as const, message: unavailable }
+    return current ?? { type: "current" as const }
   })
   const buttons = createMemo(() => {
-    const current = state()
-    if (current.type === "checking" || current.type === "installing") return []
-    const next = target()
-    const close = {
-      label: next?.type === "major" ? "Dismiss" : "Skip",
-      run: () => {
-        if (current.type !== "installed" && next?.type === "major") props.dismiss()
-        if (current.type !== "installed" && next?.type === "latest") props.skip(next.version)
-        dialog.clear()
+    const type = state().type
+    if (type === "installing") return []
+    const confirm =
+      type === "available"
+        ? { label: "Update", run: props.install }
+        : type === "installed"
+          ? { label: "Restart", run: props.restart }
+          : undefined
+    return [
+      {
+        label: "Skip",
+        run: () => {
+          props.skip()
+          dialog.clear()
+        },
       },
-    }
-    if (current.type === "installed") return [close, { label: "Restart", run: props.restart }]
-    if (!next) return [close]
-    return [close, { label: next.type === "major" ? "Upgrade" : "Update", run: () => props.install(next) }]
+      ...(confirm ? [confirm] : []),
+    ]
   })
 
   createEffect(() => setActive(Math.max(0, buttons().length - 1)))
 
-  const move = (offset: number) => {
-    const count = buttons().length
-    if (count) setActive((value) => (value + offset + count) % count)
-  }
-
-  useBindings(() => ({
-    bindings: [
-      { key: "return", desc: "Confirm update action", group: "Dialog", cmd: () => void buttons()[active()]?.run() },
-      { key: "left", desc: "Previous update action", group: "Dialog", cmd: () => move(-1) },
-      { key: "shift+tab", desc: "Previous update action", group: "Dialog", cmd: () => move(-1) },
-      { key: "right", desc: "Next update action", group: "Dialog", cmd: () => move(1) },
-      { key: "tab", desc: "Next update action", group: "Dialog", cmd: () => move(1) },
+  Keymap.createLayer(() => ({
+    mode: "modal",
+    commands: [
+      {
+        bind: "return",
+        title: "Confirm update action",
+        group: "Dialog",
+        run: () => void buttons()[active()]?.run(),
+      },
+      ...["left", "right", "tab", "shift+tab"].map((bind) => ({
+        bind,
+        title: bind === "left" || bind === "shift+tab" ? "Previous update action" : "Next update action",
+        group: "Dialog",
+        run: () => {
+          const count = buttons().length
+          if (count) setActive((value) => (value + 1) % count)
+        },
+      })),
     ],
   }))
 
   return (
     <box paddingLeft={2} paddingRight={2} gap={1}>
       <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme.text}>
+        <text attributes={TextAttributes.BOLD} fg={theme.text.base}>
           {state().type === "installing"
             ? "Updating OpenCode"
-            : state().type === "available" || state().type === "major" || state().type === "failed"
+            : state().type === "available" || state().type === "failed"
               ? "Update available"
               : "Update"}
         </text>
-        <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
+        <text fg={theme.text.muted} onMouseUp={() => dialog.clear()}>
           esc
         </text>
       </box>
-      <box paddingBottom={1} gap={1}>
+      <box paddingBottom={1}>
         <Show when={state()} keyed>
           {(current) => (
             <Switch>
               <Match when={current.type === "checking"}>
-                <Spinner color={theme.text}>Checking for updates…</Spinner>
+                <Spinner shimmer={theme.text.base}>Checking for updates…</Spinner>
               </Match>
               <Match when={current.type === "available"}>
-                <text fg={theme.textMuted} wrapMode="word">
+                <text fg={theme.text.muted}>
                   An update is available. After installing, you'll be prompted to restart OpenCode.
                 </text>
               </Match>
-              <Match when={current.type === "installing" && current} keyed>
-                {(installing) => (
-                  <Spinner color={theme.text}>
-                    {installing.target.type === "major"
-                      ? "Installing OpenCode 2.0…"
-                      : `Installing OpenCode ${installing.target.version}…`}
-                  </Spinner>
-                )}
+              <Match when={current.type === "installing"}>
+                <Spinner shimmer={theme.text.base}>
+                  {current.type === "installing" ? `Installing OpenCode ${current.version}…` : ""}
+                </Spinner>
               </Match>
-              <Match when={current.type === "installed" && current} keyed>
-                {(installed) => (
-                  <text fg={theme.textMuted} wrapMode="word">
-                    {installed.target.type === "major"
-                      ? "Update successful! A restart is required. Run `opencode` to start OpenCode 2.0."
-                      : "Update successful! A restart is required."}
-                  </text>
-                )}
+              <Match when={current.type === "installed"}>
+                <text fg={theme.text.muted} wrapMode="word">
+                  Update successful! A restart is required. Any active sessions will be resumed automatically.
+                </text>
               </Match>
-              <Match when={current.type === "major"}>
-                <box gap={1}>
-                  <box>
-                    <text fg={theme.textMuted} wrapMode="word">
-                      OpenCode 2.0 is the next major release.
-                    </text>
-                    <text
-                      fg={theme.textMuted}
-                      wrapMode="word"
-                      onMouseUp={() => {
-                        openUrl(V2_ANNOUNCEMENT_URL).catch(() => {})
-                      }}
-                    >
-                      Read more about it:{" "}
-                      <a href={V2_ANNOUNCEMENT_URL} style={{ fg: theme.primary }}>
-                        {V2_ANNOUNCEMENT_URL}
-                      </a>
-                    </text>
-                  </box>
-                  <text fg={theme.textMuted} wrapMode="word">
-                    It contains some breaking changes.
-                  </text>
-                </box>
+              <Match when={current.type === "current"}>
+                <text fg={theme.text.muted}>OpenCode is already up to date.</text>
               </Match>
-              <Match when={(current.type === "failed" || current.type === "check-failed") && current} keyed>
-                {(failed) => (
-                  <text fg={theme.error} wrapMode="word">
-                    {failed.message}
-                  </text>
-                )}
+              <Match when={current.type === "unavailable"}>
+                <text fg={theme.text.muted} wrapMode="word">
+                  {current.type === "unavailable" ? current.message : ""}
+                </text>
+              </Match>
+              <Match when={current.type === "failed" || current.type === "check-failed"}>
+                <text fg={theme.text.feedback.error.base}>
+                  {current.type === "failed" || current.type === "check-failed" ? current.message : ""}
+                </text>
               </Match>
             </Switch>
           )}
@@ -172,10 +145,12 @@ export function DialogUpdate(props: {
               <box
                 paddingLeft={1}
                 paddingRight={1}
-                backgroundColor={active() === index() ? theme.primary : undefined}
+                backgroundColor={active() === index() ? theme.background.action.primary.focused : undefined}
                 onMouseUp={() => void button.run()}
               >
-                <text fg={active() === index() ? theme.selectedListItemText : theme.textMuted}>{button.label}</text>
+                <text fg={active() === index() ? theme.text.action.primary.focused : theme.text.muted}>
+                  {button.label}
+                </text>
               </box>
             )}
           </For>
