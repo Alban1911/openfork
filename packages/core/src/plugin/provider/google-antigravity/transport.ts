@@ -222,3 +222,40 @@ export function stripInternalSessionHeader(input: RequestInfo | URL, init?: Requ
   headers.delete(INTERNAL_SESSION_HEADER)
   return [input, { ...init, headers }]
 }
+
+
+/**
+ * V2's native Gemini SDK sends an ordinary Gemini request through the session
+ * HTTP middleware. Rewrite it to the Cloud Code Assist wire format, preserving
+ * the session identity and the incoming AbortSignal.
+ */
+export async function rewriteAntigravityRequest(
+  input: Request,
+  accessToken: string,
+  projectId: string,
+): Promise<Request> {
+  const prepared = await prepareAntigravityRequest(input)
+  const stream = prepared.method === "streamGenerateContent"
+  const envelope = {
+    model: prepared.model,
+    userAgent: "antigravity",
+    requestType: "agent",
+    project: projectId,
+    requestId: "agent-" + randomUUID(),
+    request: { ...prepared.body, sessionId: prepared.sessionId },
+  }
+  return new Request(
+    CLOUD_CODE_ASSIST_API + "/v1internal:" + prepared.method + (stream ? "?alt=sse" : ""),
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + accessToken,
+        Accept: stream ? "text/event-stream" : "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": antigravityUserAgent(),
+      },
+      body: JSON.stringify(envelope),
+      signal: prepared.signal ?? undefined,
+    },
+  )
+}
