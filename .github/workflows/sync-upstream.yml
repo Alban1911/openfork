@@ -1,0 +1,84 @@
+name: Sync Upstream
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/sync-upstream.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-v2
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge upstream V2 dev
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/anomalyco/opencode.git
+          git fetch upstream dev
+
+          # Never automatically throw away fork-specific code on merge conflicts.
+          if ! git merge upstream/dev --no-ff --no-commit --no-edit; then
+            echo "Merge encountered conflicts; pruning upstream-only workflows..."
+          fi
+
+          # Keep only OpenFork's CI and sync workflows.
+          while IFS= read -r file; do
+            git rm -f "$file"
+          done < <(git diff --name-only --diff-filter=U | grep '^\.github/workflows/' || true)
+          for file in .github/workflows/*; do
+            [ -f "$file" ] || continue
+            case "$(basename "$file")" in
+              fork-ci.yml|sync-upstream.yml) ;;
+              *) git rm -f "$file" ;;
+            esac
+          done
+
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "::error::Unresolved conflicts in fork-specific code:"
+            git diff --name-only --diff-filter=U
+            exit 1
+          fi
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Typecheck V2 core
+        run: bun --cwd packages/core typecheck
+
+      - name: Typecheck V2 CLI
+        run: bun --cwd packages/cli typecheck
+
+      - name: Test Antigravity integration
+        run: cd packages/core && bun test test/plugin/google-antigravity.test.ts
+
+      - name: Push validated upstream sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            git commit -m "chore: sync upstream V2 dev" --no-edit
+            git push origin HEAD:main
+          else
+            echo "Already up to date with upstream V2 dev."
+          fi
