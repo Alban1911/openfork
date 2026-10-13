@@ -1,6 +1,12 @@
 name: Sync Upstream
 
 on:
+  # Run the new sync logic once when the workflow is updated on main.
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/sync-upstream.yml
   schedule:
     - cron: "0 0 * * *" # Runs daily at midnight UTC
   workflow_dispatch:
