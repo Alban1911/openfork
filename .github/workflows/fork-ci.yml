@@ -45,3 +45,7 @@ jobs:
 
       - name: Run Antigravity tests
         run: cd packages/core && bun test test/plugin/google-antigravity.test.ts
+
+      - name: Smoke build V2 CLI (migration branch)
+        if: github.ref == 'refs/heads/migration/opencode-v2-antigravity'
+        run: bun --cwd packages/cli build --single --skip-install --skip-web-ui
