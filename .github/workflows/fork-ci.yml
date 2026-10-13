@@ -13,6 +13,13 @@ on:
       - main
       - dev
   workflow_dispatch:
+  # Bot pushes made with GITHUB_TOKEN do not trigger push workflows.
+  # Run validation after each scheduled/manual upstream sync instead.
+  workflow_run:
+    workflows:
+      - Sync Upstream
+    types:
+      - completed
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -20,6 +27,7 @@ concurrency:
 
 jobs:
   validate:
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
