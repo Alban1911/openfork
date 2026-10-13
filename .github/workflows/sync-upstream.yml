@@ -60,9 +60,9 @@ jobs:
           fi
 
           # Do not import upstream Actions workflows into this fork.
-          git diff --name-only --diff-filter=U | grep '^\.github/workflows/' | while read -r conflict_file; do
+          while IFS= read -r conflict_file; do
             git rm -f "$conflict_file"
-          done
+          done < <(git diff --name-only --diff-filter=U | grep '^\.github/workflows/' || true)
           for file in .github/workflows/*; do
             [ -f "$file" ] || continue
             filename=$(basename "$file")
