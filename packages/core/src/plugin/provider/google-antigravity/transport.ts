@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from "node:crypto"
 
+// RequestInfo is no longer supplied by V2\x27s DOM TypeScript declaration bundle.
+type RequestInfo = Request | URL | string
+
 const CLOUD_CODE_ASSIST_API =
   process.env.GOOGLE_ANTIGRAVITY_BASE_URL?.trim().replace(/\/+$/, "") ||
   "https://daily-cloudcode-pa.googleapis.com"
