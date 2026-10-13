@@ -7,7 +7,10 @@ on:
 
 permissions:
   contents: write
-  actions: write
+
+concurrency:
+  group: upstream-v1-sync
+  cancel-in-progress: false
 
 jobs:
   sync:
@@ -20,49 +23,80 @@ jobs:
           ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Sync with upstream dev
+      # dev now targets OpenCode V2, which deletes packages/opencode.
+      # Until our custom integrations are ported, only merge stable V1 tags.
+      - name: Merge latest compatible upstream V1 release
+        id: upstream
+        shell: bash
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if ! git remote | grep -q upstream; then
-            git remote add upstream https://github.com/anomalyco/opencode.git
-          fi
-          git fetch upstream dev
+          git remote add upstream https://github.com/anomalyco/opencode.git
 
-          # Attempt merge without committing so upstream workflows can be pruned
-          if ! git merge upstream/dev --no-commit --no-edit; then
-            echo "Merge encountered conflicts, resolving .github/workflows..."
+          remote_tags="$(git ls-remote --refs --tags upstream 'refs/tags/v1.*')"
+          latest_tag="$(printf '%s\n' "$remote_tags" \
+            | awk '{print $2}' \
+            | sed 's#^refs/tags/##' \
+            | grep -E '^v1\.[0-9]+\.[0-9]+$' \
+            | sort -V \
+            | tail -n 1 || true)"
+          if [[ -z "$latest_tag" ]]; then
+            echo "::error::No stable OpenCode V1 tag found."
+            exit 1
           fi
 
-          # Resolve any unmerged files under .github/workflows by removing them
+          echo "tag=$latest_tag" >> "$GITHUB_OUTPUT"
+          git fetch --no-tags upstream "refs/tags/$latest_tag:refs/tags/$latest_tag"
+
+          # Refuse an incompatible tag rather than silently deleting our V1 code.
+          if ! git cat-file -e "$latest_tag:packages/opencode/package.json" 2>/dev/null; then
+            echo "::error::$latest_tag no longer contains packages/opencode; migrate OpenFork before upgrading."
+            exit 1
+          fi
+          echo "Merging upstream $latest_tag (V1); V2 migration is tracked separately."
+          if ! git merge "$latest_tag" --no-ff --no-commit --no-edit; then
+            echo "Merge encountered conflicts; resolving .github/workflows only..."
+          fi
+
+          # Do not import upstream Actions workflows into this fork.
           git diff --name-only --diff-filter=U | grep '^\.github/workflows/' | while read -r conflict_file; do
-            git rm -f "$conflict_file" 2>/dev/null || rm -f "$conflict_file"
+            git rm -f "$conflict_file"
           done
-
-          # Prune any new or restored upstream workflows, keeping only fork-specific ones
           for file in .github/workflows/*; do
             [ -f "$file" ] || continue
             filename=$(basename "$file")
             if [ "$filename" != "fork-ci.yml" ] && [ "$filename" != "sync-upstream.yml" ]; then
-              git rm -f "$file" 2>/dev/null || rm -f "$file"
+              git rm -f "$file"
             fi
           done
 
-          # Fail if any unresolved merge conflicts exist outside .github/workflows
+          # Do not auto-resolve conflicts in fork-specific code.
           if git diff --name-only --diff-filter=U | grep -q .; then
-            echo "Unresolved merge conflicts exist outside .github/workflows:"
+            echo "::error::Unresolved non-workflow merge conflicts:"
             git diff --name-only --diff-filter=U
             exit 1
           fi
 
-          # Commit the merge if one is in progress
-          if git rev-parse -q --verify MERGE_HEAD; then
-            git commit -m "chore: sync upstream dev" --no-edit
-            git push origin main
-          elif [ -n "$(git status --porcelain)" ]; then
-            git add -A
-            git commit -m "chore: sync upstream dev"
-            git push origin main
+          echo "Using compatible upstream release $latest_tag. V2 dev is intentionally excluded." >> "$GITHUB_STEP_SUMMARY"
+
+      # Test the merged worktree before pushing to main.
+      - name: Setup Bun and dependencies
+        uses: ./.github/actions/setup-bun
+
+      - name: Typecheck OpenFork
+        run: bun --cwd packages/opencode typecheck
+
+      - name: Run Google Antigravity tests
+        run: bun --cwd packages/opencode test test/plugin/google-antigravity.test.ts
+
+      - name: Push validated sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            git commit -m "chore: sync upstream ${{ steps.upstream.outputs.tag }}" --no-edit
+            git push origin HEAD:main
           else
-            echo "Already up to date."
+            echo "Already up to date with ${{ steps.upstream.outputs.tag }}."
           fi
