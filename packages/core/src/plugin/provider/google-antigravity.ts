@@ -1,4 +1,5 @@
 import { Effect, Stream } from "effect"
+import { Money } from "@opencode/schema/money"
 import { define } from "@opencode/plugin/effect/plugin"
 import type { IntegrationOAuthMethodRegistration } from "@opencode/plugin/effect/integration"
 import { Credential } from "../../credential.js"
@@ -106,15 +107,16 @@ export const GoogleAntigravityPlugin = define({
       if (!oauthActive) return
       for (const item of models.list(providerID)) {
         models.update(item.providerID, item.id, (model) => {
-          if (!isAntigravityModel(model.modelID ?? model.id) || model.package.includes("/interactions")) {
+          if (!isAntigravityModel(model.modelID ?? model.id) || model.package?.includes("/interactions")) {
             model.enabled = false
             return
           }
+          const zero = Money.USDPerMillionTokens.zero
           model.cost = model.cost.map((tier) => ({
             ...tier,
-            input: 0,
-            output: 0,
-            cache: { read: 0, write: 0 },
+            input: zero,
+            output: zero,
+            cache: { read: zero, write: zero },
           }))
         })
       }
@@ -142,10 +144,10 @@ export const GoogleAntigravityPlugin = define({
           const value = yield* ctx.integration.connection.resolve(connection).pipe(Effect.orElseSucceed(() => undefined))
           if (value?.type !== "oauth" || value.methodID !== methodID) return
           const project = projectID(value)
-          if (!project) return yield* Effect.fail(new Error("Antigravity credential is missing a project ID"))
+          if (!project) return yield* Effect.die(new Error("Antigravity credential is missing a project ID"))
           event.request = yield* Effect.tryPromise(() =>
             rewriteAntigravityRequest(event.request, value.access, project),
-          )
+          ).pipe(Effect.orDie)
         }),
       { providerID },
     )
@@ -154,7 +156,7 @@ export const GoogleAntigravityPlugin = define({
       (event) =>
         Effect.gen(function* () {
           if (!event.request.url.includes("/v1internal:") || !isAntigravityModel(event.model.id)) return
-          event.response = yield* Effect.tryPromise(() => unwrapAntigravityResponse(event.response))
+          event.response = yield* Effect.tryPromise(() => unwrapAntigravityResponse(event.response)).pipe(Effect.orDie)
         }),
       { providerID },
     )
