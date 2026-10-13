@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test"
 import { extractProjectId, generatePKCE } from "../../src/plugin/provider/google-antigravity/oauth"
 import {
   mapAntigravityModel,
+  INTERNAL_SESSION_HEADER,
+  rewriteAntigravityRequest,
+  unwrapAntigravityResponse,
   stableSessionId,
   unwrapAntigravityJson,
   unwrapAntigravitySseLine,
@@ -51,4 +54,37 @@ describe("Google Antigravity transport", () => {
       `data: ${JSON.stringify(response)}`,
     )
   })
+
+  test("rewrites a native Gemini request using OAuth and Cloud Code Assist envelope", async () => {
+    const body = { contents: [{ role: "user", parts: [{ text: "hello" }] }] }
+    const incoming = new Request(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", [INTERNAL_SESSION_HEADER]: "session-123" },
+        body: JSON.stringify(body),
+      },
+    )
+    const outgoing = await rewriteAntigravityRequest(incoming, "test-access", "test-project")
+    expect(new URL(outgoing.url).pathname).toBe("/v1internal:streamGenerateContent")
+    expect(new URL(outgoing.url).searchParams.get("alt")).toBe("sse")
+    expect(outgoing.headers.get("authorization")).toBe("Bearer test-access")
+    expect(outgoing.headers.has(INTERNAL_SESSION_HEADER)).toBe(false)
+    const wire = (await outgoing.json()) as any
+    expect(wire.model).toBe("gemini-3.8-flash-medium")
+    expect(wire.project).toBe("test-project")
+    expect(wire.request.sessionId).toBe(stableSessionId("session-123"))
+    expect(wire.request.contents).toEqual(body.contents)
+  })
+
+  test("unwraps streaming Cloud Code Assist responses", async () => {
+    const response = await unwrapAntigravityResponse(
+      new Response('data: {"response":{"candidates":[{"finishReason":"STOP"}]}}\n\n', {
+        headers: { "content-type": "text/event-stream", "content-length": "100" },
+      }),
+    )
+    expect(response.headers.get("content-length")).toBeNull()
+    expect(await response.text()).toBe('data: {"candidates":[{"finishReason":"STOP"}]}\n\n')
+  })
+
 })
