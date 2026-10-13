@@ -11,6 +11,7 @@ import { DynamicProviderPlugin } from "./provider/dynamic.js"
 import { GithubCopilotPlugin } from "./provider/github-copilot.js"
 import { GitLabPlugin } from "./provider/gitlab.js"
 import { GoogleVertexPlugin } from "./provider/google-vertex.js"
+import { GoogleAntigravityPlugin } from "./provider/google-antigravity.js"
 import { KiloPlugin } from "./provider/kilo.js"
 import { LLMGatewayPlugin } from "./provider/llmgateway.js"
 import { LMStudioPlugin } from "./provider/lmstudio.js"
@@ -45,6 +46,7 @@ export const ProviderPlugins: PluginInternal.InternalPlugin[] = [
   GithubCopilotPlugin,
   GitLabPlugin,
   GoogleVertexPlugin,
+  GoogleAntigravityPlugin,
   KiloPlugin,
   LLMGatewayPlugin,
   LMStudioPlugin,
