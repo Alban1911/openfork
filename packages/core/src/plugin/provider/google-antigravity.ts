@@ -79,9 +79,7 @@ export const GoogleAntigravityPlugin = define({
   effect: Effect.fn(function* (ctx) {
     const bus = yield* Bus.Service
     let oauthActive = false
-    let source: Awaited<ReturnType<typeof ctx.integration.connection.active>> extends Effect.Effect<infer A, any, any>
-      ? A
-      : never
+    let source: Effect.Success<ReturnType<typeof ctx.integration.connection.active>>
 
     const load = Effect.fn("GoogleAntigravityPlugin.load")(function* () {
       const connection = yield* ctx.integration.connection.active(integrationID)
