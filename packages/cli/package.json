@@ -5,6 +5,7 @@
   "type": "module",
   "license": "MIT",
   "bin": {
+    "openfork": "./bin/opencode.cjs",
     "opencode": "./bin/opencode.cjs",
     "opencode2": "./bin/opencode2.cjs"
   },
